@@ -64,19 +64,6 @@
 
     <script>
         let humanOutputTensor;
-        async function loadModel() {
-            try {
-                document.getElementById('outputText').innerText = 'Loading model from AWS...';
-
-                const model = await tf.loadGraphModel('https://your-bucket-name.s3.amazonaws.com/tfjs_model/model.json');
-
-                document.getElementById('outputText').innerText = 'Model loaded successfully!';
-                return model;
-            } catch (error) {
-                console.error('Error loading model:', error);
-                document.getElementById('outputText').innerText = 'Error loading model!';
-            }
-        }
 
         async function runModel() {
             try {
@@ -86,7 +73,7 @@
                 document.getElementById('outputText').innerText = 'Loading model...';
 
                 console.log("Start loading model");
-                const model = await loadModel("https://enformeronnx.s3.us-east-2.amazonaws.com/test_enformer.onnx");
+                const model = await tf.loadGraphModel('http://localhost:8000/tfjs_model/model.json');
                 console.log("Finish loading model");
                 document.getElementById('outputText').innerText = 'Model loaded successfully. Running inference...';
 
