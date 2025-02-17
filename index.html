@@ -1,70 +1,212 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <title>ONNX.js Real-Time Example</title>
-    <script src="https://cdn.jsdelivr.net/npm/onnxjs/dist/onnx.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TensorFlow.js Neural Network</title>
+    <link rel="icon" href="icon.jpg" type="image/jpeg">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu/dist/tf-backend-webgpu.js"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
     <style>
-        #inputs { margin-bottom: 10px; }
-        .input-field { margin-right: 5px; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        #output {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+        }
+
+        #downloadButtons {
+            margin-top: 10px;
+        }
+
+        #plot {
+            margin-top: 30px;
+            width: 100%;
+            height: 500px;
+        }
+
+        select {
+            margin-top: 10px;
+        }
     </style>
 </head>
-<body>
-    <h1>ONNX.js Real-Time Example</h1>
-    <div id="inputs">
-        <input class="input-field" type="number" id="input1" placeholder="Input 1">
-        <input class="input-field" type="number" id="input2" placeholder="Input 2">
-        <input class="input-field" type="number" id="input3" placeholder="Input 3">
-    </div>
-    <div id="output"></div>
-    <script>
-        let session;
 
-        async function initializeModel() {
+<body>
+    <h1>TensorFlow.js Model Output Shape</h1>
+    <button id="runModelButton">Run Model</button>
+    <div id="output">
+        <h3>Output Tensor Shape:</h3>
+        <pre id="outputText">No output yet...</pre>
+    </div>
+
+    <div>
+        <label for="trackSelection">Select a Track (0 to 5312): </label>
+        <select id="trackSelection">
+            <option value="">-- Select Track --</option>
+            <!-- Tracks will be populated dynamically -->
+        </select>
+    </div>
+
+    <div id="downloadButtons" style="display: none;">
+        <button id="downloadHumanOutput">Download Human Output JSON</button>
+        <button id="downloadMouseOutput">Download Mouse Output JSON</button>
+    </div>
+
+    <div id="plot"></div> <!-- Plotly chart will be rendered here -->
+
+    <script>
+        let humanOutputTensor;
+        async function loadModel() {
             try {
-                // Initialize the ONNX Inference Session
-                session = new onnx.InferenceSession();
-                await session.loadModel('simple_nn.onnx');
-                console.log('Model loaded successfully.');
+                document.getElementById('outputText').innerText = 'Loading model from AWS...';
+
+                const model = await tf.loadGraphModel('https://your-bucket-name.s3.amazonaws.com/tfjs_model/model.json');
+
+                document.getElementById('outputText').innerText = 'Model loaded successfully!';
+                return model;
             } catch (error) {
-                console.error('Error loading the model:', error);
+                console.error('Error loading model:', error);
+                document.getElementById('outputText').innerText = 'Error loading model!';
             }
         }
 
         async function runModel() {
             try {
-                // Get input values from the input fields
-                const input1 = parseFloat(document.getElementById('input1').value) || 0;
-                const input2 = parseFloat(document.getElementById('input2').value) || 0;
-                const input3 = parseFloat(document.getElementById('input3').value) || 0;
+                // Display loading status
+                await tf.setBackend("webgpu");
+                await tf.ready();
+                document.getElementById('outputText').innerText = 'Loading model...';
 
-                // Create an input tensor
-                const input = new Float32Array([input1, input2, input3]);
-                const tensor = new onnx.Tensor(input, 'float32', [1, 3]);
-                console.log('Input tensor created:', tensor);
+                console.log("Start loading model");
+                const model = await loadModel("https://enformeronnx.s3.us-east-2.amazonaws.com/test_enformer.onnx");
+                console.log("Finish loading model");
+                document.getElementById('outputText').innerText = 'Model loaded successfully. Running inference...';
+
+                // Create a dummy input tensor (modify dimensions based on your model input)
+                const input = new Float32Array(196_608 * 4);  // Adjust size according to the model requirements
+                const inputTensor = tf.tensor(input, [1, 196608, 4], 'float32');
 
                 // Run the model with the input tensor
-                const outputMap = await session.run([tensor]);
-                const outputTensor = outputMap.values().next().value;
+                console.log("Start Inferencing");
+                document.getElementById('outputText').innerText = 'Inferencing ... Might take a few seconds..';
+                const outputDict = model.execute(inputTensor);
+                console.log("Finish Inferencing");
 
-                // Log the output
-                console.log('Output tensor:', outputTensor.data);
+                let humanOutput = outputDict[1];
+                let mouseOutput = outputDict[0];
 
-                // Display the output on the webpage
-                const outputElement = document.getElementById('output');
-                outputElement.textContent = `Output tensor: [${outputTensor.data.join(', ')}]`;
+                if (humanOutput === undefined || mouseOutput === undefined) {
+                    throw new Error("Model output does not contain 'human' and 'mouse' keys.");
+                }
+
+                // Get the output tensor shapes for both keys
+                const humanShape = humanOutput.shape;
+                const mouseShape = mouseOutput.shape;
+
+                // Display the output shapes
+                document.getElementById('outputText').innerText = `
+                    Human Output Shape: ${JSON.stringify(humanShape)}
+                    Mouse Output Shape: ${JSON.stringify(mouseShape)}
+                `;
+
+                // Convert tensors to arrays
+                const humanOutputArray = await humanOutput.data();
+                const mouseOutputArray = await mouseOutput.data();
+
+                document.getElementById('downloadButtons').style.display = 'block';
+
+                // Event listeners for download buttons
+                document.getElementById('downloadHumanOutput').addEventListener('click', () => downloadOutput('humanOutput.json', humanOutputArray));
+                document.getElementById('downloadMouseOutput').addEventListener('click', () => downloadOutput('mouseOutput.json', mouseOutputArray));
+
+                // Initialize the human output tensor for slicing
+                humanOutputTensor = tf.tensor(humanOutputArray, humanShape);
+
+                // Populate track selection options
+                const trackSelection = document.getElementById('trackSelection');
+                for (let i = 0; i < humanShape[2]; i++) {
+                    const option = document.createElement('option');
+                    option.value = i;
+                    option.innerText = `Track ${i}`;
+                    trackSelection.appendChild(option);
+                }
+
+                // Attach event listener to track selection
+                trackSelection.addEventListener('change', () => {
+                    const selectedTrack = parseInt(trackSelection.value);
+                    if (!isNaN(selectedTrack)) {
+                        plotTrack(selectedTrack);
+                    }
+                });
+
+                humanOutput.dispose();
+                mouseOutput.dispose();
+                inputTensor.dispose();
+
             } catch (error) {
-                console.error('Error running the model:', error);
+                console.error("Error during model execution:", error);
+                document.getElementById('outputText').innerText = 'Error: ' + error.message;
             }
         }
 
-        // Initialize the model on page load
-        window.onload = initializeModel;
+        // Function to create a downloadable JSON file
+        function downloadOutput(filename, data) {
+            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
 
-        // Add event listeners to input fields to run the model on input change
-        document.querySelectorAll('.input-field').forEach(inputField => {
-            inputField.addEventListener('input', runModel);
-        });
+        // Function to plot a selected track as a line chart
+        async function plotTrack(trackIndex) {
+            const trackData = humanOutputTensor.slice([0, 0, trackIndex], [1, 896, 1]);
+            const trackArray = await trackData.data();  // Convert to array
+
+            const trace = {
+                x: Array.from(Array(trackArray.length).keys()),  // Create an array of indices [0, 1, 2, ..., 895]
+                y: trackArray,  // Track values
+                type: 'scatter',
+                mode: 'lines',
+                name: `Track ${trackIndex} of Human Output`
+            };
+
+            const layout = {
+                title: `Track ${trackIndex} of Human Output Tensor`,
+                xaxis: { title: 'Index' },
+                yaxis: { title: 'Value' },
+            };
+
+            Plotly.newPlot('plot', [trace], layout);
+            trackData.dispose();  // Clean up tensor
+        }
+
+        // Attach event listener to the button
+        document.getElementById('runModelButton').addEventListener('click', runModel);
     </script>
 </body>
+
 </html>
+
+
+
+<!-- scp petergu@scc1.bu.edu:/projectnb/aclab/petergu/enformer-pytorch/test_enformer.onnx /Users/guzhaowen/Downloads/onnx_test     -->
+<!-- convert to tf: (convertenv2) onnx-tf convert -i test_enformer.onnx -o tf_model -->
+<!-- convert to tfjs: (convertenv3) tensorflowjs_converter tf_model/ tfjs_model/ --input_format tf_saved_model --output_format tfjs_graph_model --quantize_uint8 -->
+<!-- python -m http.server 8000  -->
+
+<!-- input using fasta then bed-->
+<!-- on server side (have 3GB human genome) do translation, then client do inference, pyfaidx in server side -->
+<!-- try do everything in a github pages! -->
