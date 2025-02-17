@@ -41,6 +41,15 @@
 
 <body>
     <h1>TensorFlow.js Model Output Shape</h1>
+
+    <div>
+        <h3>Model Weights Configuration</h3>
+        <button id="downloadModelButton">Download Model Weights</button>
+        <br><br>
+        <label for="modelPath">Model Weights Path:</label>
+        <input type="text" id="modelPath" value="http://localhost:8000/tfjs_model/model.json" size="50">
+    </div>
+
     <button id="runModelButton">Run Model</button>
     <div id="output">
         <h3>Output Tensor Shape:</h3>
@@ -51,7 +60,6 @@
         <label for="trackSelection">Select a Track (0 to 5312): </label>
         <select id="trackSelection">
             <option value="">-- Select Track --</option>
-            <!-- Tracks will be populated dynamically -->
         </select>
     </div>
 
@@ -60,30 +68,43 @@
         <button id="downloadMouseOutput">Download Mouse Output JSON</button>
     </div>
 
-    <div id="plot"></div> <!-- Plotly chart will be rendered here -->
+    <div id="plot"></div>
 
     <script>
         let humanOutputTensor;
 
+        document.getElementById("downloadModelButton").addEventListener("click", async function () {
+            const url = "https://github.com/peterguzw0927/Enformer_wev/raw/main/tfjs_model.zip";
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "tfjs_model.zip";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            alert("Model weights downloaded. Please unzip and set the correct path.");
+        });
+
+        function getModelPath() {
+            return document.getElementById("modelPath").value;
+        }
+
         async function runModel() {
             try {
-                // Display loading status
                 await tf.setBackend("webgpu");
                 await tf.ready();
                 document.getElementById('outputText').innerText = 'Loading model...';
 
-                console.log("Start loading model");
-                const model = await tf.loadGraphModel('http://localhost:8000/tfjs_model/model.json');
-                console.log("Finish loading model");
+                const modelPath = getModelPath();
+                console.log("Loading model from:", modelPath);
+                const model = await tf.loadGraphModel(modelPath);
+
                 document.getElementById('outputText').innerText = 'Model loaded successfully. Running inference...';
 
-                // Create a dummy input tensor (modify dimensions based on your model input)
-                const input = new Float32Array(196_608 * 4);  // Adjust size according to the model requirements
+                const input = new Float32Array(196_608 * 4);
                 const inputTensor = tf.tensor(input, [1, 196608, 4], 'float32');
 
-                // Run the model with the input tensor
                 console.log("Start Inferencing");
-                document.getElementById('outputText').innerText = 'Inferencing ... Might take a few seconds..';
+                document.getElementById('outputText').innerText = 'Inferencing... Might take a few seconds.';
                 const outputDict = model.execute(inputTensor);
                 console.log("Finish Inferencing");
 
@@ -94,30 +115,24 @@
                     throw new Error("Model output does not contain 'human' and 'mouse' keys.");
                 }
 
-                // Get the output tensor shapes for both keys
                 const humanShape = humanOutput.shape;
                 const mouseShape = mouseOutput.shape;
 
-                // Display the output shapes
                 document.getElementById('outputText').innerText = `
                     Human Output Shape: ${JSON.stringify(humanShape)}
                     Mouse Output Shape: ${JSON.stringify(mouseShape)}
                 `;
 
-                // Convert tensors to arrays
                 const humanOutputArray = await humanOutput.data();
                 const mouseOutputArray = await mouseOutput.data();
 
                 document.getElementById('downloadButtons').style.display = 'block';
 
-                // Event listeners for download buttons
                 document.getElementById('downloadHumanOutput').addEventListener('click', () => downloadOutput('humanOutput.json', humanOutputArray));
                 document.getElementById('downloadMouseOutput').addEventListener('click', () => downloadOutput('mouseOutput.json', mouseOutputArray));
 
-                // Initialize the human output tensor for slicing
                 humanOutputTensor = tf.tensor(humanOutputArray, humanShape);
 
-                // Populate track selection options
                 const trackSelection = document.getElementById('trackSelection');
                 for (let i = 0; i < humanShape[2]; i++) {
                     const option = document.createElement('option');
@@ -126,7 +141,6 @@
                     trackSelection.appendChild(option);
                 }
 
-                // Attach event listener to track selection
                 trackSelection.addEventListener('change', () => {
                     const selectedTrack = parseInt(trackSelection.value);
                     if (!isNaN(selectedTrack)) {
@@ -144,7 +158,6 @@
             }
         }
 
-        // Function to create a downloadable JSON file
         function downloadOutput(filename, data) {
             const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -157,14 +170,13 @@
             URL.revokeObjectURL(url);
         }
 
-        // Function to plot a selected track as a line chart
         async function plotTrack(trackIndex) {
             const trackData = humanOutputTensor.slice([0, 0, trackIndex], [1, 896, 1]);
-            const trackArray = await trackData.data();  // Convert to array
+            const trackArray = await trackData.data();
 
             const trace = {
-                x: Array.from(Array(trackArray.length).keys()),  // Create an array of indices [0, 1, 2, ..., 895]
-                y: trackArray,  // Track values
+                x: Array.from(Array(trackArray.length).keys()),
+                y: trackArray,
                 type: 'scatter',
                 mode: 'lines',
                 name: `Track ${trackIndex} of Human Output`
@@ -177,23 +189,12 @@
             };
 
             Plotly.newPlot('plot', [trace], layout);
-            trackData.dispose();  // Clean up tensor
+            trackData.dispose();
         }
 
-        // Attach event listener to the button
         document.getElementById('runModelButton').addEventListener('click', runModel);
     </script>
+
 </body>
 
 </html>
-
-
-
-<!-- scp petergu@scc1.bu.edu:/projectnb/aclab/petergu/enformer-pytorch/test_enformer.onnx /Users/guzhaowen/Downloads/onnx_test     -->
-<!-- convert to tf: (convertenv2) onnx-tf convert -i test_enformer.onnx -o tf_model -->
-<!-- convert to tfjs: (convertenv3) tensorflowjs_converter tf_model/ tfjs_model/ --input_format tf_saved_model --output_format tfjs_graph_model --quantize_uint8 -->
-<!-- python -m http.server 8000  -->
-
-<!-- input using fasta then bed-->
-<!-- on server side (have 3GB human genome) do translation, then client do inference, pyfaidx in server side -->
-<!-- try do everything in a github pages! -->
